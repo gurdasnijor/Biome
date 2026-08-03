@@ -11,17 +11,27 @@
  * to a remote Biome server over HTTP (`/health`, `/api/*`) and WebSocket
  * (`/ws`) — all standard browser APIs. Because of that, the whole
  * "standalone" surface (spawning/installing the local Python engine, native
- * windowing, on-disk seed/recording/background management, auto-update) is
- * irrelevant here and is stubbed with safe no-ops.
+ * windowing, recordings, background management, auto-update) is irrelevant
+ * here and is stubbed with safe no-ops. Seeds use browser-local persistence.
  *
  * The only channels that carry real behaviour on the web:
  *   - read/write-settings        -> localStorage, pinned to server mode
  *   - probe-server-health        -> real cross-origin fetch of `/health`
  *   - list-models / models-info  -> proxied to the server's `/api/*` routes
+ *   - seed operations            -> IndexedDB, with the default seed bundled
  * Everything else returns a shape-compatible default.
  */
 import { settingsSchema, ENGINE_MODES, type Settings } from '../types/settings'
+import type { SeedSource } from '../types/app'
 import defaultSeedUrl from '../../seeds/default.jpg?url'
+import {
+  deleteStoredSeed,
+  getSeedThumbnailBase64,
+  getStoredSeedBase64,
+  listStoredSeeds,
+  saveGeneratedSeed,
+  uploadStoredSeed
+} from './seedStore'
 
 const SETTINGS_KEY = 'biome.web.settings'
 const DEFAULT_SEED_FILENAME = 'default.jpg'
@@ -57,8 +67,10 @@ function getDefaultSeedBase64(): Promise<string> {
 }
 
 async function getSeedImageBase64(filename: string): Promise<{ base64: string }> {
-  if (filename !== DEFAULT_SEED_FILENAME) return { base64: '' }
-  return { base64: await getDefaultSeedBase64() }
+  if (filename === DEFAULT_SEED_FILENAME) return { base64: await getDefaultSeedBase64() }
+  const base64 = await getStoredSeedBase64(filename)
+  if (!base64) throw new Error(`Seed image not found: ${filename}`)
+  return { base64 }
 }
 
 /**
@@ -242,14 +254,21 @@ const handlers: Record<string, Handler> = {
     probeServerHealth(healthUrl as string, (timeoutMs as number) ?? 5000),
   'get-last-server-exit-tail': () => null,
 
-  // --- Seeds (the bundled default is enough to bootstrap a web session) -----
-  'list-seeds': () => [{ filename: DEFAULT_SEED_FILENAME, source: 'default', modifiedAt: 0 }],
+  // --- Seeds (bundled default + browser-persistent uploads/generations) ------
+  'list-seeds': async () => [
+    { filename: DEFAULT_SEED_FILENAME, source: 'default', modifiedAt: 0 },
+    ...(await listStoredSeeds())
+  ],
   'get-seed-image-base64': (filename) => getSeedImageBase64(filename as string),
-  'get-seed-thumbnail-base64': async (filename) => (await getSeedImageBase64(filename as string)).base64,
-  'upload-seed': (filename) => ({ filename: filename as string, source: 'uploaded', modifiedAt: 0 }),
-  'save-generated-seed': () => ({ filename: '', source: 'generated', modifiedAt: 0 }),
-  'delete-seed': () => undefined,
-  'get-seeds-dir-path': () => '',
+  'get-seed-thumbnail-base64': async (filename) => {
+    const seedFilename = filename as string
+    const { base64 } = await getSeedImageBase64(seedFilename)
+    return getSeedThumbnailBase64(seedFilename, base64)
+  },
+  'upload-seed': (filename, base64) => uploadStoredSeed(filename as string, base64 as string),
+  'save-generated-seed': (base64) => saveGeneratedSeed(base64 as string),
+  'delete-seed': (filename, source) => deleteStoredSeed(filename as string, source as SeedSource),
+  'get-seeds-dir-path': () => 'IndexedDB:biome.web.seeds',
   'open-seeds-dir': () => undefined,
   'read-image-files': () => [],
 
