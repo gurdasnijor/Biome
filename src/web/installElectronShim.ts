@@ -21,8 +21,45 @@
  * Everything else returns a shape-compatible default.
  */
 import { settingsSchema, ENGINE_MODES, type Settings } from '../types/settings'
+import defaultSeedUrl from '../../seeds/default.jpg?url'
 
 const SETTINGS_KEY = 'biome.web.settings'
+const DEFAULT_SEED_FILENAME = 'default.jpg'
+
+let defaultSeedBase64Promise: Promise<string> | null = null
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string' || !result.includes(',')) {
+        reject(new Error('Failed to read the bundled default seed'))
+        return
+      }
+      resolve(result.slice(result.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read the bundled default seed'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function getDefaultSeedBase64(): Promise<string> {
+  if (!defaultSeedBase64Promise) {
+    defaultSeedBase64Promise = fetch(defaultSeedUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load the bundled default seed: HTTP ${response.status}`)
+        return response.blob()
+      })
+      .then(blobToBase64)
+  }
+  return defaultSeedBase64Promise
+}
+
+async function getSeedImageBase64(filename: string): Promise<{ base64: string }> {
+  if (filename !== DEFAULT_SEED_FILENAME) return { base64: '' }
+  return { base64: await getDefaultSeedBase64() }
+}
 
 /**
  * The remote Biome server the web client should talk to. Baked in at build
@@ -205,10 +242,10 @@ const handlers: Record<string, Handler> = {
     probeServerHealth(healthUrl as string, (timeoutMs as number) ?? 5000),
   'get-last-server-exit-tail': () => null,
 
-  // --- Seeds (local disk on desktop; empty on web for now) ------------------
-  'list-seeds': () => [],
-  'get-seed-image-base64': () => ({ base64: '' }),
-  'get-seed-thumbnail-base64': () => '',
+  // --- Seeds (the bundled default is enough to bootstrap a web session) -----
+  'list-seeds': () => [{ filename: DEFAULT_SEED_FILENAME, source: 'default', modifiedAt: 0 }],
+  'get-seed-image-base64': (filename) => getSeedImageBase64(filename as string),
+  'get-seed-thumbnail-base64': async (filename) => (await getSeedImageBase64(filename as string)).base64,
   'upload-seed': (filename) => ({ filename: filename as string, source: 'uploaded', modifiedAt: 0 }),
   'save-generated-seed': () => ({ filename: '', source: 'generated', modifiedAt: 0 }),
   'delete-seed': () => undefined,
