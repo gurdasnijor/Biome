@@ -6,6 +6,8 @@
   "main": ".vite/build/main.js",
   "scripts": {
     "dev": "electron-forge start",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts && mv dist-web/index.web.html dist-web/index.html",
     "build": "electron-forge make",
     "package": "electron-forge package",
     "lint": "prettier --check . && eslint . && tsc --noEmit",
