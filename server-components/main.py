@@ -219,18 +219,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Biome Server", lifespan=lifespan)
 
-# The desktop client makes same-origin/localhost requests, but the web build
-# (served from a different host) needs its origin explicitly allowed for the
-# HTTP endpoints (/health, /api/*). WebSocket (/ws) is not subject to CORS.
-# `BIOME_ALLOWED_ORIGINS` (comma-separated) is merged with the localhost dev
-# origins; `BIOME_ALLOWED_ORIGIN_REGEX` optionally allows a whole domain.
-_default_origins = ["http://localhost:5173", "http://localhost:3000"]
-_extra_origins = [o.strip() for o in os.environ.get("BIOME_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_default_origins + _extra_origins,
-    allow_origin_regex=os.environ.get("BIOME_ALLOWED_ORIGIN_REGEX") or None,
+    allow_origins=["http://localhost:5173"],  # Vite dev server
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
