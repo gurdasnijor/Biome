@@ -3,7 +3,7 @@ Device backend — single home for the accelerator-specific bits.
 
 Every reference to torch's device-namespaced API and to `pynvml` lives here.
 The rest of the codebase passes the per-purpose device strings
-(`WORLD_ENGINE_DEVICE`, `SCENE_AUTHORING_DEVICE`, `SAFETY_DEVICE`) to
+(`WORLD_ENGINE_DEVICE`, `SCENE_AUTHORING_DEVICE`) to
 `.to(...)` calls and uses the wrappers below for memory queries, lifecycle
 ops, and NVML-backed monitoring.
 
@@ -50,12 +50,10 @@ logger = structlog.stdlib.get_logger(__name__)
 IS_DARWIN_ARM64 = sys.platform == "darwin" and _platform_mod.machine() == "arm64"
 
 # Device assignment per purpose. They all happen to be the same GPU today,
-# but split here so we can move pieces around — e.g. safety on CPU while
-# the world engine stays on GPU, or scene authoring on a second GPU —
+# but split here so scene authoring can move to a second GPU later
 # without rewriting every call site.
 WORLD_ENGINE_DEVICE = "cpu" if IS_DARWIN_ARM64 else "cuda"
 SCENE_AUTHORING_DEVICE = "cpu" if IS_DARWIN_ARM64 else "cuda"
-SAFETY_DEVICE = "cpu" if IS_DARWIN_ARM64 else "cuda"
 
 
 # Torch's OOM exception, re-exported under a backend-neutral name.

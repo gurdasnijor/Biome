@@ -145,7 +145,6 @@ async def run_receiver(
     generator thread to resolve at the next clean frame boundary."""
     world_engine = engines.world_engine
     scene_authoring = engines.scene_authoring
-    safety_checker = engines.safety_checker
 
     while conn.running:
         try:
@@ -159,7 +158,7 @@ async def run_receiver(
             match parsed:
                 case InitRequest() as req:
                     # init RPC: apply deltas and respond with metrics.
-                    ready, new_seed = await handle_init(conn, world_engine, safety_checker, req, is_game_loop=True)
+                    ready, new_seed = await handle_init(conn, world_engine, req, is_game_loop=True)
                     if ready:
                         response = rpc_ok(req.req_id, build_init_response_data(world_engine, conn.system_monitor.info))
                     else:
@@ -222,7 +221,7 @@ async def run_receiver(
                     conn.queue_send(gen_response)
 
                 case CheckSeedSafetyRequest() as req:
-                    seed_response = await handle_check_seed_safety(safety_checker, req)
+                    seed_response = await handle_check_seed_safety(req)
                     conn.queue_send(seed_response)
 
                 case ResetNotif():

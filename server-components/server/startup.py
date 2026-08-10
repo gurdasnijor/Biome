@@ -121,22 +121,12 @@ class ServerStartup:
                 world_engine = WorldEngineManager()
                 scene_authoring = SceneAuthoringManager(world_engine)
 
-                self.mark_stage(StageId.STARTUP_SAFETY_CHECKER)
-                from engine.safety import SafetyChecker
-
-                safety_checker = await asyncio.to_thread(SafetyChecker)
-                self.mark_stage(StageId.STARTUP_SAFETY_READY)
-
                 app.state.engines = Engines(
                     world_engine=world_engine,
                     scene_authoring=scene_authoring,
-                    safety_checker=safety_checker,
                 )
 
-                logger.info(
-                    "Engines ready; WorldEngine model loads on session init",
-                    safety_cache_entries=safety_checker.cache_size,
-                )
+                logger.info("Engines ready; WorldEngine model loads on session init")
                 self.mark_stage(StageId.STARTUP_READY)
                 self.mark_done()
 
