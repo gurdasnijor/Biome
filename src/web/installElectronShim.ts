@@ -34,6 +34,8 @@ import {
 } from './seedStore'
 
 const SETTINGS_KEY = 'biome.web.settings'
+const HOSTED_DEFAULTS_VERSION_KEY = `${SETTINGS_KEY}.hosted-defaults-version`
+const HOSTED_DEFAULTS_VERSION = 'quark-v1'
 const DEFAULT_SEED_FILENAME = 'default.jpg'
 
 let defaultSeedBase64Promise: Promise<string> | null = null
@@ -95,16 +97,30 @@ function baseDefaults(): Settings {
   }
 }
 
+function migrateHostedDefaults(settings: Settings): Settings {
+  if (localStorage.getItem(HOSTED_DEFAULTS_VERSION_KEY) === HOSTED_DEFAULTS_VERSION) return settings
+
+  // The hosted Quark default shipped after some browsers had already saved
+  // World Engine. Apply the new default once to existing storage, then mark
+  // the migration so later user-selected backend and quant values are kept.
+  const migrated = { ...settings, engine_backend: 'quark' as const, engine_quant: 'none' as const }
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated))
+  localStorage.setItem(HOSTED_DEFAULTS_VERSION_KEY, HOSTED_DEFAULTS_VERSION)
+  return migrated
+}
+
 function readSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return baseDefaults()
-    const merged = settingsSchema.parse(JSON.parse(raw)) as Settings
+    const settings = raw ? (settingsSchema.parse(JSON.parse(raw)) as Settings) : baseDefaults()
     // There is no standalone engine in the browser, so always run in server
     // mode and never let server_url be empty (empty => localhost standalone).
-    merged.engine_mode = ENGINE_MODES.SERVER
-    if (!merged.server_url) merged.server_url = DEFAULT_SERVER_URL
-    return merged
+    const hostedSettings = {
+      ...settings,
+      engine_mode: ENGINE_MODES.SERVER,
+      server_url: settings.server_url || DEFAULT_SERVER_URL
+    }
+    return migrateHostedDefaults(hostedSettings)
   } catch {
     return baseDefaults()
   }
