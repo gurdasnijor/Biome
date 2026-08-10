@@ -10,7 +10,7 @@ Two flows ride on top:
 
 Both go through the same modular building blocks: a VLM call to write the
 Klein prompt, a Klein run, a resize-and-tensorise, and (for the orchestration
-free-functions) a safety check + a swap into the world engine. Nothing here
+free-functions) a swap into the world engine. Nothing here
 reaches into `WorldEngineManager.engine` or `._device_executor` — those are
 private; we go through the public API on the manager (`set_seed_and_reset`,
 `append_frame_repeatedly`, `submit_to_device_thread`, `tensor_to_numpy`,
@@ -46,23 +46,7 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 
-SCENE_EDIT_SAFETY_MESSAGE_ID = "app.server.error.sceneEditSafetyRejected"
-GENERATE_SCENE_SAFETY_MESSAGE_ID = "app.server.error.generateSceneSafetyRejected"
-
-
 # ─── Errors ──────────────────────────────────────────────────────────
-
-
-class SafetyRejectionError(RuntimeError):
-    """Raised when image generation/editing is rejected by the VLM (via the
-    `reject_request` tool call) or by the post-classifier safety check on the
-    generated image."""
-
-    message_id: str
-
-    def __init__(self, message_id: str = SCENE_EDIT_SAFETY_MESSAGE_ID):
-        self.message_id = message_id
-        super().__init__(message_id)
 
 
 class NoToolCallsError(ValueError):
@@ -209,32 +193,8 @@ VLM_TOOLS = [
                 "required": ["instruction"],
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "reject_request",
-            "description": "Reject a request that is entirely unsafe with no salvageable intent.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
+    }
 ]
-
-VLM_CONTENT_POLICY = (
-    "CONTENT POLICY: You MUST sanitize the user's request before "
-    "producing the instruction.\n"
-    "   - COPYRIGHTED CHARACTERS/IP: Replace any named copyrighted "
-    "characters, brands, or intellectual property with generic "
-    "equivalents. E.g. 'Master Chief' → 'armored sci-fi soldier', "
-    "'Pikachu' → 'small yellow electric creature', 'Coca-Cola' → "
-    "'red soda can'.\n"
-    "   - NUDITY/SEXUAL CONTENT: Remove or replace any request for "
-    "nudity or sexual content with a clothed/appropriate equivalent. "
-    "Violence (weapons, combat, monsters) is acceptable.\n"
-    "   - If the ENTIRE request is only about NSFW "
-    "content with no salvageable intent, call the reject_request "
-    "tool instead of submit_edit_instruction."
-)
 
 VLM_SYSTEM_PROMPT = (
     "You write image editing instructions for an AI image editor. "
@@ -250,8 +210,7 @@ VLM_SYSTEM_PROMPT = (
     "a hand holding the object in the bottom-right corner.\n"
     "3. SCENE ELEMENTS (buildings, creatures, weather): Place naturally "
     "in the environment.\n"
-    "4. STYLE/MOOD changes: Describe the transformation clearly.\n"
-    f"5. {VLM_CONTENT_POLICY}\n\n"
+    "4. STYLE/MOOD changes: Describe the transformation clearly.\n\n"
     "EXAMPLES:\n"
     '- User: "sword" → "Add a glowing sword held in a right hand in '
     "the bottom-right corner of the frame, as in a first-person game. "
@@ -269,8 +228,7 @@ VLM_SYSTEM_PROMPT = (
     "Always end with 'Keep everything else unchanged.'\n\n"
     "IMPORTANT: Be concise. Think briefly (2-3 sentences max), then "
     "immediately submit your instruction via the submit_edit_instruction "
-    "tool. Do not deliberate at length. If the request is entirely unsafe "
-    "with no salvageable intent, call reject_request instead."
+    "tool. Do not deliberate at length."
 )
 
 VLM_GENERATE_SYSTEM_PROMPT = (
@@ -286,8 +244,7 @@ VLM_GENERATE_SYSTEM_PROMPT = (
     "3. ALWAYS include a handheld item held in a right hand at the "
     "bottom-right of the frame, as in a first-person game. A gun or "
     "weapon is preferred, but tools, sticks, or other items fitting "
-    "the scene are also fine. Pick something that matches the setting.\n"
-    f"4. {VLM_CONTENT_POLICY}\n\n"
+    "the scene are also fine. Pick something that matches the setting.\n\n"
     "EXAMPLES:\n"
     '- User: "underwater city" → "A vibrant underwater city seen from '
     "a first-person perspective. Bioluminescent coral buildings rise "
@@ -301,8 +258,7 @@ VLM_GENERATE_SYSTEM_PROMPT = (
     'stretches ahead with sealed bulkhead doors."\n\n'
     "IMPORTANT: Be concise. Think briefly (2-3 sentences max), then "
     "immediately submit your prompt via the submit_edit_instruction tool. "
-    "Do not deliberate at length. If the request is entirely unsafe with "
-    "no salvageable intent, call reject_request instead."
+    "Do not deliberate at length."
 )
 
 
@@ -477,16 +433,13 @@ class SceneAuthoringManager:
     # ─── VLM (writes Klein prompts) ──────────────────────────────
 
     @staticmethod
-    def _parse_edit_instruction(text: str, safety_message_id: str = SCENE_EDIT_SAFETY_MESSAGE_ID) -> str:
+    def _parse_edit_instruction(text: str) -> str:
         """Extract the 'instruction' from a submit_edit_instruction tool call.
 
-        Raises SafetyRejectionError if a reject_request tool call is found.
         Raises ValueError if no valid tool call is found or the instruction is missing.
         """
         tool_calls = parse_tool_calls(text)
         for call in tool_calls:
-            if call.name == "reject_request":
-                raise SafetyRejectionError(safety_message_id)
             if call.name == "submit_edit_instruction":
                 instruction = call.arguments.get("instruction", "")
                 if instruction:
@@ -497,11 +450,9 @@ class SceneAuthoringManager:
         self,
         messages: list[dict],
         operation: str,
-        safety_message_id: str = SCENE_EDIT_SAFETY_MESSAGE_ID,
     ) -> str:
         """Run the VLM with retries, parse a tool call, return the instruction.
 
-        Raises SafetyRejectionError if the VLM calls reject_request.
         Raises RuntimeError after VLM_MAX_RETRIES failed attempts.
         """
         if self.vlm is None:
@@ -532,7 +483,7 @@ class SceneAuthoringManager:
             )
 
             try:
-                prompt = self._parse_edit_instruction(raw_output, safety_message_id)
+                prompt = self._parse_edit_instruction(raw_output)
             except ValueError as exc:
                 last_error = exc
                 log.warning("Tool call parse failed", attempt=attempt, total_attempts=VLM_MAX_RETRIES, error=str(exc))
@@ -565,7 +516,7 @@ class SceneAuthoringManager:
                 ],
             },
         ]
-        return self._run_vlm(messages, "scene_edit", SCENE_EDIT_SAFETY_MESSAGE_ID)
+        return self._run_vlm(messages, "scene_edit")
 
     def _build_generation_prompt(self, user_request: str) -> str:
         """Ask the VLM for a text-to-image prompt (no reference frame)."""
@@ -581,7 +532,7 @@ class SceneAuthoringManager:
                 ),
             },
         ]
-        return self._run_vlm(messages, "generate_scene", GENERATE_SCENE_SAFETY_MESSAGE_ID)
+        return self._run_vlm(messages, "generate_scene")
 
     # ─── Klein pipeline (shared building blocks) ─────────────────
 
@@ -665,12 +616,11 @@ def run_scene_edit(
     """Run inpainting on the last subframe and apply the result to the engine.
 
     Takes the last subframe from the most recent gen_frame output, asks the
-    VLM + Klein to inpaint it, safety-checks the result, and either resets
+    VLM + Klein to inpaint it, and either resets
     the engine with the edit as the new seed or appends it repeatedly to
     strengthen it in the KV cache. Returns preview data for the RPC."""
     world_engine = engines.world_engine
     scene_authoring = engines.scene_authoring
-    safety_checker = engines.safety_checker
 
     last_frame_np = cpu_frames[-1]
 
@@ -684,12 +634,6 @@ def run_scene_edit(
     inpainted_np = world_engine.tensor_to_numpy(inpainted)
     preview_jpeg = world_engine.numpy_to_jpeg(inpainted_np)
     preview_b64 = base64.b64encode(preview_jpeg).decode("ascii")
-
-    inpainted_pil = Image.fromarray(inpainted_np)
-    verdict = safety_checker.check_pil_image(inpainted_pil)
-    if not verdict.is_safe:
-        logger.warning("Safety checker rejected inpainted image", operation="scene_edit", scores=verdict.scores)
-        raise SafetyRejectionError()
 
     if EDIT_RESET_WITH_FRAME:
         world_engine.set_seed_and_reset(inpainted)
@@ -717,19 +661,13 @@ def run_generate_scene(
     on."""
     world_engine = engines.world_engine
     scene_authoring = engines.scene_authoring
-    safety_checker = engines.safety_checker
 
     t0 = time.perf_counter()
 
-    generated, sanitized_prompt = scene_authoring.generate(user_request, world_engine.seed_target_size)
+    generated, image_prompt = scene_authoring.generate(user_request, world_engine.seed_target_size)
 
-    # Safety check on the generated image
     generated_np = world_engine.tensor_to_numpy(generated)
     generated_pil = Image.fromarray(generated_np)
-    verdict = safety_checker.check_pil_image(generated_pil)
-    if not verdict.is_safe:
-        logger.warning("Safety checker rejected generated image", operation="generate_scene", scores=verdict.scores)
-        raise SafetyRejectionError(GENERATE_SCENE_SAFETY_MESSAGE_ID)
 
     # Encode the generated image as JPEG for the client to persist. Done
     # before any multiframe expansion so we encode a single HxWx3 frame.
@@ -737,7 +675,7 @@ def run_generate_scene(
         biome_version=biome_version or "unknown",
         image_model=EDIT_MODEL_ID,
         user_prompt=user_request,
-        sanitized_prompt=sanitized_prompt,
+        sanitized_prompt=image_prompt,
         generated_at=time.time(),
     )
     jpeg_buf = io.BytesIO()
@@ -759,6 +697,6 @@ def run_generate_scene(
         elapsed_ms=round(elapsed_ms),
         image_jpeg_base64=image_b64,
         user_prompt=user_request,
-        sanitized_prompt=sanitized_prompt,
+        sanitized_prompt=image_prompt,
         image_model=EDIT_MODEL_ID,
     )

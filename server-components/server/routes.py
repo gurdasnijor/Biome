@@ -21,7 +21,7 @@ Phases run top-to-bottom; each is one well-named call:
   - cleanup                 → `Connection.teardown`
 
 `app.state` carries the resources the lifespan populates: `engines`
-(an `Engines` bundle), `safety_cache`, `startup` (`ServerStartup`).
+(an `Engines` bundle) and `startup` (`ServerStartup`).
 The typed accessors below pull each piece individually so endpoints
 take only what they need rather than reaching through a god object.
 """
@@ -88,6 +88,8 @@ class WorldEngineHealth(BaseModel):
 
 
 class SafetyHealth(BaseModel):
+    """Legacy response slot retained for protocol-compatible clients."""
+
     loaded: bool
 
 
@@ -288,7 +290,7 @@ async def health(request: Request, startup: Annotated[ServerStartup, Depends(get
             warmed_up=we is not None and we.engine_warmed_up,
             has_seed=we is not None and we.seed_frame is not None,
         ),
-        safety=SafetyHealth(loaded=engines is not None),
+        safety=SafetyHealth(loaded=False),
         capabilities=supported_capabilities(),
         launched_from_standalone=launched_from_standalone,
     )
@@ -844,7 +846,7 @@ async def websocket_endpoint(
 
             # Phase 3: pre-init message dispatch — wait for an InitRequest that
             # loads a seed frame (or 60 s timeout).
-            if not await run_preinit_handshake(conn, world_engine, engines.safety_checker):
+            if not await run_preinit_handshake(conn, world_engine):
                 return
 
             # Phase 4: scene-authoring + engine warmup, init session, send

@@ -18,6 +18,7 @@ init phase between handshake and game loop. These let the route shell
 import asyncio
 import base64
 import binascii
+import hashlib
 from typing import TYPE_CHECKING
 
 import structlog
@@ -50,7 +51,6 @@ from server.session.connection import Connection
 
 if TYPE_CHECKING:
     from engine.manager import WorldEngineManager
-    from engine.safety import SafetyChecker
     from engine.scene_authoring import SceneAuthoringManager
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -66,11 +66,14 @@ def build_init_response_data(world_engine: "WorldEngineManager", system_info: Sy
 
 
 async def handle_check_seed_safety(
-    safety_checker: "SafetyChecker",
     req: CheckSeedSafetyRequest,
 ) -> RpcSuccess[CheckSeedSafetyResponseData] | RpcError:
-    """Check whether a seed image passes the NSFW classifier. Cache lookup +
-    persistence are owned by `SafetyChecker.check_image_bytes`."""
+    """Keep the protocol-compatible seed check while accepting all images.
+
+    The browser uses the returned hash for deduplication, so removing the
+    classifier does not require a protocol break or a synchronized client
+    rollout.
+    """
     if not req.image_data:
         return rpc_err(req.req_id, error=MessageId.SEED_MISSING_DATA.value)
 
@@ -79,23 +82,17 @@ async def handle_check_seed_safety(
     except (binascii.Error, ValueError) as e:
         return rpc_err(req.req_id, error=f"Invalid base64 data: {e}")
 
-    try:
-        result = await asyncio.to_thread(safety_checker.check_image_bytes, image_bytes)
-    except Exception as e:
-        logger.exception("Safety check failed")
-        return rpc_err(req.req_id, error=f"Safety check failed: {e}")
-
-    return rpc_ok(req.req_id, CheckSeedSafetyResponseData(is_safe=result.is_safe, hash=result.image_hash))
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    return rpc_ok(req.req_id, CheckSeedSafetyResponseData(is_safe=True, hash=image_hash))
 
 
 async def load_seed_from_data(
     conn: Connection,
     world_engine: "WorldEngineManager",
-    safety_checker: "SafetyChecker",
     image_data_b64: str | None,
     seed_filename: str | None = None,
 ) -> bool:
-    """Validate safety and load a seed from base64 image data.
+    """Validate and load a seed from base64 image data.
 
     Returns True iff the seed was loaded (or already loaded and matched).
     Failure paths surface a typed warning over the websocket and return False.
@@ -112,26 +109,12 @@ async def load_seed_from_data(
         await conn.send_warning(MessageId.SEED_INVALID_DATA)
         return False
 
-    # Safety check (cache lookup is internal to SafetyChecker; same-hash repeat
-    # is a fast cache hit, so we don't pre-screen against `current_seed_hash`).
-    try:
-        result = await asyncio.to_thread(safety_checker.check_image_bytes, image_bytes)
-    except Exception as e:  # noqa: BLE001  -- classifier path can raise PIL/torch/runtime errors; downgrade to a soft warning
-        logger.warning(f"Safety check failed: {e}")
-        await conn.send_warning(MessageId.SEED_SAFETY_CHECK_FAILED)
-        return False
-
-    img_hash = result.image_hash
+    img_hash = hashlib.sha256(image_bytes).hexdigest()
 
     # Same seed already loaded onto the engine? Skip the redundant reload.
     if img_hash == conn.current_seed_hash:
         logger.info("Seed unchanged (hash match), skipping reload")
         return True
-
-    if not result.is_safe:
-        logger.warning("Seed marked as unsafe")
-        await conn.send_warning(MessageId.SEED_UNSAFE)
-        return False
 
     # Load the seed onto the engine
     display_name = seed_filename or img_hash[:12]
@@ -153,7 +136,6 @@ async def load_seed_from_data(
 async def handle_init(
     conn: Connection,
     world_engine: "WorldEngineManager",
-    safety_checker: "SafetyChecker",
     req: InitRequest,
     *,
     is_game_loop: bool = False,
@@ -238,7 +220,7 @@ async def handle_init(
     # Seed delta
     seed_loaded = False
     if seed_data:
-        seed_loaded = await load_seed_from_data(conn, world_engine, safety_checker, seed_data, seed_filename)
+        seed_loaded = await load_seed_from_data(conn, world_engine, seed_data, seed_filename)
 
     if model_changed and not seed_loaded and not world_engine.seed_frame:
         await conn.send_stage(StageId.SESSION_WAITING_FOR_SEED)
@@ -250,7 +232,6 @@ async def handle_init(
 async def run_preinit_handshake(
     conn: Connection,
     world_engine: "WorldEngineManager",
-    safety_checker: "SafetyChecker",
 ) -> bool:
     """Drive the pre-init message loop until the client's InitRequest
     yields a loaded seed frame, or 60 s elapses without one.
@@ -278,12 +259,12 @@ async def run_preinit_handshake(
 
         match parsed:
             case CheckSeedSafetyRequest() as req:
-                result = await handle_check_seed_safety(safety_checker, req)
+                result = await handle_check_seed_safety(req)
                 await conn.websocket.send_text(result.model_dump_json(exclude_none=True))
             case InitRequest() as req:
                 # init RPC: response is deferred until after warmup/session init completes
                 conn.init_req_id = req.req_id
-                ready, _ = await handle_init(conn, world_engine, safety_checker, req)
+                ready, _ = await handle_init(conn, world_engine, req)
                 if not ready:
                     await conn.websocket.send_text(
                         rpc_err(conn.init_req_id, error_id=MessageId.INIT_FAILED).model_dump_json(exclude_none=True)
