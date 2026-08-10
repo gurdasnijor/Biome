@@ -20,7 +20,7 @@ import { isGooseMode } from '../../i18n'
 import { VortexRenderer, VORTEX_PORTAL_COUNT, VORTEX_LOADING_COUNT } from '../../lib/vortexRenderer'
 import { VortexContext } from './vortexContextValue'
 
-const GOOSE_SPRITESHEET_URL = new URL('../../assets/goose-spritesheet.png', import.meta.url).href
+const GOOSE_SPRITESHEET_URL = new URL('../../../assets/goose-spritesheet.png', import.meta.url).href
 
 type VortexMode = 'portal' | 'loading'
 
