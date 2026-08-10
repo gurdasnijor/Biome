@@ -226,7 +226,7 @@ const ja = {
             'あなたの世界をシミュレートします。お使いのシステムで動作する範囲で、最も新しく最も大きいモデルを選んでください。',
           backend: 'バックエンド',
           backendDescription:
-            'ワールドモデルを実行します。既定は World Engine。Quark は実験的なバックエンドで、macOS にも対応しています。'
+            'ワールドモデルを実行します。Quark は CUDA と Apple Silicon に対応し、World Engine も互換性のため利用できます。'
         },
         worldModel: {
           download: 'ダウンロード',

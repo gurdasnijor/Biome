@@ -214,7 +214,7 @@ const zh = {
           worldModel: '世界模型',
           worldModelDescription: '模拟你的世界。请选择你的系统能够运行的最新、最大的模型。',
           backend: '后端',
-          backendDescription: '运行世界模型。World Engine 是默认选项；Quark 为实验性后端，支持 macOS。'
+          backendDescription: '运行世界模型。Quark 支持 CUDA 和 Apple Silicon；World Engine 仍可用于兼容。'
         },
         worldModel: {
           download: '下载',

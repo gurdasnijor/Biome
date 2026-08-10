@@ -227,7 +227,7 @@ const goose = {
           worldModelDescription: 'Shapes your pond. Pick the newest, biggest model your pond can hold.',
           backend: 'Backend',
           backendDescription:
-            'Drives the flock. World Engine is the trusty old waddler; Quark is our experimental new fledgling with macOS feathers.'
+            'Drives the flock. Quark paddles on CUDA and Apple Silicon; World Engine stays in the pond for compatibility.'
         },
         worldModel: {
           download: 'download',

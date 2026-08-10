@@ -82,10 +82,17 @@ const DEFAULT_SERVER_URL =
   ((import.meta.env.VITE_BIOME_SERVER_URL as string | undefined) || '').trim() || window.location.origin
 
 function baseDefaults(): Settings {
-  // `parse({})` materialises every schema default; we then pin the two fields
-  // that make this a web/server-mode client.
+  // `parse({})` materialises every schema default; we then pin the fields that
+  // make this a hosted client. It uses Quark's portable CUDA path by default;
+  // users can still select World Engine later.
   const defaults = settingsSchema.parse({}) as Settings
-  return { ...defaults, engine_mode: ENGINE_MODES.SERVER, server_url: DEFAULT_SERVER_URL }
+  return {
+    ...defaults,
+    engine_mode: ENGINE_MODES.SERVER,
+    engine_backend: 'quark',
+    engine_quant: 'none',
+    server_url: DEFAULT_SERVER_URL
+  }
 }
 
 function readSettings(): Settings {
