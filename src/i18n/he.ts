@@ -217,7 +217,8 @@ const he = {
           worldModel: 'מודל עולם',
           worldModelDescription: 'מדמה את העולם שלך. בחר את החדש והגדול ביותר שהמערכת שלך מסוגלת להריץ.',
           backend: 'מנגנון',
-          backendDescription: 'מריץ את מודל העולם. World Engine הוא ברירת המחדל; Quark ניסיוני ותומך ב-macOS.'
+          backendDescription:
+            'מריץ את מודל העולם. Quark תומך ב-CUDA וב-Apple Silicon; World Engine נשאר זמין לצורכי תאימות.'
         },
         worldModel: {
           download: 'הורדה',

@@ -226,7 +226,7 @@ const en = {
           worldModelDescription: 'Simulates your world. Pick the newest, largest one your system can handle.',
           backend: 'Backend',
           backendDescription:
-            'Runs the world model. World Engine is the default; Quark is experimental and supports macOS.'
+            'Runs the world model. Quark supports CUDA and Apple Silicon; World Engine remains available for compatibility.'
         },
         worldModel: {
           download: 'download',
